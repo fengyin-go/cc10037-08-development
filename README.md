@@ -69,6 +69,24 @@ npm run dev
 | 成本分析 | `cost_analysis` | 成本快照 | 快照日期、管线标识、计算时长 |
 | 告警策略 | `alert_policy` | 告警规则 | 规则名称、监控对象、告警条件 |
 
+### 分区齐备核对（跨模块链路）
+
+`/partition_readiness` 页面对应 `backend/app/engine/partition_readiness.py` 与
+`backend/app/services/partition_readiness.py`，把「生产日历 + 上游到达明细 + 日分区校验」
+按目标表对齐，不以日历天数简单推回刷：
+
+- 应产规则：每张目标表单独配置生产日历、确认阈值（T+N）和齐备率阈值。
+- 待补清单：只有已到期、应产、但缺数/未达阈值/未校验/校验失败/停产日冲突的日期才进入。
+  停产日且无到达不进入清单；停产日仍有到达属于「停产日冲突」，需人工确认是否纳入当期。
+- 下游可读：只有 `已校验` 的日分区可读；未校验或校验失败的分区一律不下发。
+- 补偿批次：从待补清单生成，批次串行衔接，下一批的输入取上一批日期，只有这些分区
+  实际校验通过后才能调度；完成补偿的日期保留在原批次。
+- 口径变更：变更管线阈值或更正生产日历后重算受影响表的待补数据，已完成行保留原批次和
+  执行时日历版本，先前跑过的日期范围写入 `retained_ranges`。
+
+对应接口在 `/api/readiness/*`（待补清单、批次规划/调度/核对、停产冲突复核、补交到达、
+校验登记、日历更正、规则变更），示例数据见 `backend/app/readiness_seed.py`。
+
 ## 约定
 
 - 全部模块共享`frontend/src/views/WorkbenchView.vue|tsx`和一套资源路由。
@@ -76,6 +94,9 @@ npm run dev
   `frontend/src/domain/<模块>.ts`，用于承载真实业务差异并维持36题位容量。
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
+- 分区齐备核对的中间表（规则、日历、到达、校验、待补清单、补偿批次）不进入通用资源
+  路由和运营概览，只由 `/api/readiness/*` 读写。
+- 后端自检：`cd backend && .venv/bin/python -m unittest tests.test_partition_readiness`
 
 领域：数据工程
 子方向：数仓与数据湖

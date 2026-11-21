@@ -6,17 +6,30 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.readiness_seed import READINESS_SEED_ROWS
 from app.seed import SEED_ROWS
+
+# 分区齐备核对域的中间表由专用接口读写，不进入通用资源路由和运营概览。
+INTERNAL_MODULES = frozenset({
+    "partition_target_rule",
+    "production_calendar",
+    "upstream_arrival",
+    "partition_validation",
+    "shutdown_confirmation",
+    "pending_partition",
+    "compensation_batch",
+})
 
 
 class Store:
     def __init__(self) -> None:
         self._tables: dict[str, list[dict[str, Any]]] = {
-            name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
+            name: [dict(row) for row in rows]
+            for name, rows in {**SEED_ROWS, **READINESS_SEED_ROWS}.items()
         }
 
     def module_names(self) -> list[str]:
-        return sorted(self._tables)
+        return sorted(name for name in self._tables if name not in INTERNAL_MODULES)
 
     def rows(self, module: str) -> list[dict[str, Any]]:
         return self._tables.setdefault(module, [])
